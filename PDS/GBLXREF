@@ -1,0 +1,979 @@
+GBLXREF  TITLE '                               G L O B A L   X R E F   >
+               U T I L I T Y'
+***********************************************************************
+*                                                                     *
+* Title -- GBLXREF                                                    *
+*                                                                     *
+* Copyright (c) 2015 J. Stephen Myers                                 *
+*                                                                     *
+* Function / Operation -- GBLXREF scans SYSADATA output created by    *
+*   the High Level Assembler to produce a listing of symbols defined  *
+*   in data areas used by several modules.  Prior to running GBLXREF  *
+*   you must prepare a PDS containing SYSADATA output from the        *
+*   assemblies of the programming system.  GBLXREF uses the "SYM" and *
+*   "XREF" SYSADATA records.  GBLXREF is particularly optimized for   *
+*   JES2 where globally used symbols are defined in a HASPDOC         *
+*   assembly.                                                         *
+*                                                                     *
+*   Sample output - Each symbol with a reference is displayed like    *
+*   this -                                                            *
+*                                                                     *
+*   XECBPCE   HASPCOMM *HASPNUC                                       *
+*                                                                     *
+*   Global symbol XECBPCE is used in HASPCOMM and HASPNUC.  HASPNUC   *
+*   is flagged with an asterisk to indicate it modifies the data      *
+*   area.                                                             *
+*                                                                     *
+* Status / Change Level --                                            *
+*   V3L0 -- June 2015                                                 *
+*    * Rewritten because V2 was lost                                  *
+*                                                                     *
+* Attributes -- GBLXREF is not reenterable, not refresable and not    *
+*   reusable.  It operates in task mode, enabled, in problem key and  *
+*   problem state.  It uses no APF restricted operasting system       *
+*   based resources.  It does not evade any operating system security *
+*   or integrity control.                                             *
+*                                                                     *
+* JCL --                                                              *
+*   //        EXEC PGM=GBLXREF,PARM=member                            *
+*   //SYSPRINT DD  -- Output data set --                              *
+*   //SYSADATA DD  -- PDS containing SYSADATA output --               *
+*    member -- The member name of the SYSADATA PDS containing         *
+*              globally used symbols.  The default is HASPDOC.        *
+*                                                                     *
+* Restrictions --                                                     *
+*   * GBLXREF requires SYSADATA output prepared by High Level         *
+*     Assembler Version 1 Release 5 and higher.                       *
+*   * GBLXREF uses selected machine instructions in z/Architecture    *
+*     level set 2 and higher, most notably the TRTR instruction.      *
+*                                                                     *
+* Comments -- SYSADATA output is very voluminous.  It is strongly     *
+*   recommended that only the "SYM" and "XREF" records used by        *
+*   GBLXREF be retained to reduce storage space and execution time    *
+*   in GBLXREF.                                                       *
+*                                                                     *
+***********************************************************************
+         SPACE 5
+         MACRO
+         IHADECB &DSECT=YES
+         AIF   ('&DSECT' EQ 'YES').DSECT
+         AIF   ('&DSECT' EQ 'NO').NOSECT
+         MNOTE 8,'DSECT=&DSECT IS INVALID'
+         MEXIT
+.NOSECT  ANOP
+         DS    0F                  BSAM / BPAM DECB
+         AGO   .STOR
+.DSECT   ANOP
+DECB     DSECT                     BSAM / BPAM DECB
+.STOR    ANOP
+*                                                           OFFSET SIZE
+DECBECB  DS    F                   EVENT CONTROL BLOCK           0   4
+DECBTYP1 DS    AL1                 DECB FUNCTION 1               4   1
+DECBTYP2 DS    AL1                 DECB FUNCTION 2               5   1
+DECBRSIZ DS    AL2                 RECORD SIZE                   6   2
+DECBDCBA DS    A                   ADDRESS OF ASSOCIATED DCB     8   4
+DECAREA  DS    0A                  ADDRESS OF THE I/O BUFFER    12   4
+DECBRECA DS    A                   ADDRESS OF THE I/O BUFFER    12   4
+DECIOBPT DS    0A                  ADDRESS OF THE IOB           16   4
+DECBIOBA DS    A                   ADDRESS OF THE IOB           16   4
+         MEND
+         EJECT
+         PUNCH ' ORDER GBLXREF(P),MINIFMT,QSORTS'
+         SPACE 1
+GBLXREF  CSECT
+         PUSH  PRINT
+         PRINT NOGEN
+         DCBD  DSORG=QS,DEVD=DA
+         IHADECB DSECT=YES
+         PRINT GEN
+         ASMADATA XREF=YES,SYM=YES,ESD=YES,PRINT=GEN
+         SPACE 5
+SYMBOL   DSECT
+SYMNEXT  DS    A
+SYMXREF  DS    2A
+SYMNAME  DS    CL80
+         DS    0D
+SYMSIZE  EQU   *-SYMBOL
+         SPACE 5
+XREF     DSECT
+XRNEXT   DS    A
+XRMEMBER DS    CL8
+XRFLAG   DS    AL1
+XRMOD    EQU   X'80'
+         DS    0D
+XRSIZE   EQU   *-XREF
+         POP   PRINT
+         EJECT
+GBLXREF  CSECT                     Return to program CSECT
+GBLXREF  AMODE 31
+GBLXREF  RMODE 24
+         USING GBLXREFD,11         Establish data area addressability
+         USING *,12                Establish program addressability
+         SAVE  (14,12),,'GBLXREF V3 &SYSDATE &SYSTIME Copyright (c) 201>
+               5 J. Stephen Myers' Save registers
+         LR    12,15               Prepare program base register
+         BAS   14,*+L'*+4          Br around data area address
+         DC    AL4(GBLXREFD)       Data area address
+         L     11,0(,14)           Load data area address
+         LA    15,SAVEAREA         Compute addr of the new save area
+         ST    13,4(,15)           Add new save area to the
+         ST    15,8(,13)            save area chain
+         LR    13,15               Establish new save area pointer
+         L     14,0(,1)            Load addr of the parameter test
+         LH    15,0(,14)           Load length of the parameter text
+         LTR   15,15               Test the length
+         BZ    NOPARM              Br if no parameter text
+         AHI   14,2                Compute addr of the parameter text
+         LA    0,HASPDOC           Load addr and length of the
+         LHI   1,L'HASPDOC          global symbols member
+         ICM   15,B'1000',=C' '    Load the fill character
+         MVCL  0,14                Copy global symbol member override
+NOPARM   TIMEUSED STORADR=TIME01,CPU=MIC,LINKAGE=SYSTEM
+         LA    1,OPARM01           Open the DCBs
+         BAS   14,OPENLIST
+         LTR   15,15               All DCBs open?
+         BNZ   EXIT                No
+         BAS   14,INITHDR          Initialize the page header
+         LA    3,3                 Load number of DECBs
+         LA    4,DECBLIST          Compute addr of first DECB pointer
+GETBUF   GETBUF SYSADATA,(2)       Get an I/O buffer for the SYSADATA ->
+                                    data set
+         L     15,0(,4)            Load a DECB address
+         ST    2,DECAREA-DECB(,15) Store the buffer address in a DECB
+         AHI   4,4                 Compute addr of next DECB pointer
+         BCT   3,GETBUF            Get thge next buffer
+         FIND  SYSADATA,HASPDOC,D  Prepare to read the global         ->
+                                    synbols member
+         LTR   15,15               Return code OK?
+         BZ    INITDOC             Yep
+         LA    1,FMT02             Member not in data set, oops
+         BAS   14,FMTLINE
+         B     EXIT
+         EJECT
+         CNOP  0,8
+INITDOC  BAS   14,INITREAD
+READDOC  BAS   14,READVB           Get an ADATA record
+         B     DOCEOF              EOF
+         LR    10,1                Save the record address
+         CLC   =AL2(ADATA_RECSYM),ADATA_RECTYPE-ASMADATA(1)  Symbol?
+         BNE   READDOC                                       No
+         LH    15,0(,1)            Load the record length
+         LA    15,0(15,1)          Compute the end of the record
+         LA    14,ADSYM_NAME-ASMADATA(,1)  Compute addr of the mame
+         SR    15,14               Compute the length of the name
+         BP    *+L'*+2             Br if length > 0
+         DC    H'0'                Oops
+         ICM   15,B'1000',=C' '    Copy the name
+         LA    0,VARIABLE
+         LHI   1,L'VARIABLE
+         MVCL  0,14
+         CLI   VARIABLE,C' '       Got a good name?
+         BNE   *+L'*+2             Yep
+         DC    H'0'                Oops
+         LA    1,VARIABLE          Add the symbol to the hash table
+         BAS   14,GETSYM
+         NOPR  0
+         B     READDOC             Go read the next record
+         SPACE 1
+DOCEOF   TIMEUSED STORADR=TIME02,CPU=MIC,LINKAGE=SYSTEM
+         EJECT
+         CNOP  0,8
+GETDIR   GET   DIR                 Read a directory block
+         LH    3,0(,1)             Load used bytes in the block
+         AR    3,1                 Compute addr of the last used byte
+         BCTR  3,0                  in the directory block
+         LA    4,2(,1)             Compute addr of the first          ->
+                                    member entry
+TESTMEMB CLC   =FL8'-1',0(4)       End of data?
+         BE    DEOF                Yep
+         CLC   HASPDOC,0(4)        Global symbols member?
+         BE    RMEOF               Yep
+         MVC   TTR(3),8(4)
+         FIND  SYSADATA,TTR,C      Prepare to read the member
+         LTR   15,15               OK?
+         BZ    *+L'*+2             Yep
+         DC    H'0'                Oops
+         BAS   14,INITREAD         Start I/O for the member
+         SR    7,7                 Indicate no symbol
+READMEMB BAS   14,READVB           Get a record
+         B     RMEOF               EOF
+NEWREC   LR    10,1                Save the record address
+         CLC   =AL2(ADATA_RECSYM),ADATA_RECTYPE-ASMADATA(1)  Symbol?
+         BNE   TESTXREF                                      No
+         LH    15,0(,1)            Load the record length
+         LA    14,ADSYM_NAME-ASMADATA(,1)  Compute start of the       ->
+                                            symbol name
+         AR    15,1                Compute the end of the symbol name
+         SR    15,14               Compute the length
+         BNP   READMEMB            Oops
+         LA    0,VARIABLE          Copy the
+         LA    1,L'VARIABLE         symbol name to
+         ICM   15,B'1000',=C' '      VARIABLE
+         MVCL  0,14
+         CLC   =C'$MID',VARIABLE   Message ID?
+         BNE   READMEMB            No
+         TRT   VARIABLE+4(3),TESTNUM  Message number?
+         BNZ   READMEMB               No
+         LA    1,VARIABLE          Get a SYMBOL
+         BAS   14,GETSYM
+         B     READMEMB
+TESTXREF CLC   =AL2(ADATA_RECXREF),ADATA_RECTYPE-ASMADATA(1)  XREF?
+         BNE   READMEMB                                       No
+         ICM   15,B'1111',ADXREF_SYM_LEN-ASMADATA(1)  Load length of  ->
+                                                       the symbol name
+         BZ    TESTCONT
+         LA    14,ADXREF_SYM_NAME-ASMADATA(,1) Load addr of the       ->
+                                                symbol name
+         ICM   5,B'1111',ADXREF_REFS_OFF-ASMADATA(1)  Load offset     ->
+                                                of the first XREF entry
+         BZ    TESTCONT
+         AR    5,1                              Compute the address
+         AHI   5,4                 Add the size of the RDW
+         ICM   6,B'1111',ADXREF_REFS_NUM-ASMADATA(1)  Load number of  ->
+                                                   XREFs in this record
+         LHI   1,L'VARIABLE        Copy the symbol name
+         LA    0,VARIABLE           to VARIABLE
+         ICM   15,B'1000',=C' '
+         MVCL  0,14
+         CLI   VARIABLE,C' '       Good name?
+         BNE   *+L'*+2             I suppose
+         DC    H'0'
+         LA    1,VARIABLE          Find global symbol
+         BAS   14,FINDSYM
+         LTR   7,1                 Copy the address to reg 7
+         BZ    TESTCONT            Symbol is not a global symbol
+         LA    0,XRSIZE            Allocate an XREF entry
+*        GETMAIN RU,LV=(0),LOC=(31,ANY)
+         BAS   14,GETMAIN
+         LR    9,1                 Save the address
+         XC    0(XRSIZE,1),0(1)    Clear the entry
+         MVC   XRMEMBER-XREF(,1),0(4)  Copy the member name
+         LHI   0,1                 Update
+         A     0,XREFCOUNT          XREFCOUNT
+         ST    0,XREFCOUNT
+         L     15,(SYMXREF-SYMBOL)+4(,7)
+         ST    1,XRNEXT-XREF(,15)       Add the new XREF to the
+         ST    1,(SYMXREF-SYMBOL)+4(,7)  end of the XREF chain
+SCANREFS CLI   ADXREF_REF_FLAG-ADXREF_REF(5),ADXREF_REF_MODIFY  Modify?
+         BNE   NOTMODIFY                                        No
+         OI    XRFLAG-XREF(1),XRMOD  Show modified
+         B     TESTCONT            Go get the next record
+NOTMODIFY AHI  5,ADXREF_REF_EQU_LEN Compute addr of the next reference
+         BCT   6,SCANREFS
+TESTCONT CLI   ADATA_CONT-ASMADATA(10),ADATA_ISCONT  More records?
+         BNE   READMEMB                              No
+         BAS   14,READVB           Read the continuation
+         B     RMEOF               EOF
+         LR    10,1                Save the record address
+         CLC   =AL2(ADATA_RECXREF),ADATA_RECTYPE-ASMADATA(1)  XREF?
+         BNE   NEWREC                                         No
+         LTR   7,7                 Global symbol?
+         BZ    TESTCONT            No
+         ICM   5,B'1111',ADXREF_REFS_OFF-ASMADATA(1)  Load offset     ->
+                                                of the first XREF entry
+         BZ    TESTCONT
+         AR    5,1                              Compute the address
+         AHI   5,4                 Add the size of the RDW
+         ICM   6,B'1111',ADXREF_REFS_NUM-ASMADATA(1)  Load number of  ->
+                                                   XREFs in this record
+         LR    1,9                 Copy the XREF address to reg 1
+         B     SCANREFS            Scan the XREFs in the record
+RMEOF    SR    2,2                 Compute the
+         IC    2,11(,4)             length of the
+         N     2,=A(X'1F')           directory
+         LA    2,12(2,2)              entry
+         BXLE  4,2,TESTMEMB        Compute addr of the next directory ->
+                                    entry & branch if it's in this    ->
+                                     directory block
+         B     GETDIR
+DEOF     TIMEUSED STORADR=TIME03,CPU=MIC,LINKAGE=SYSTEM
+* Rechain the symbols in the hash table to SYMLIST
+         LHI   0,HASHNUM           Load number of hash table entries
+         LA    2,HASHTAB           Compute addr of the first hash     ->
+                                    table entry
+         SR    3,3
+RECHAIN1 ICM   1,B'1111',SYMNEXT-SYMBOL(2)  Load addr of the          ->
+                                             next SYMBOL
+         BZ    RECHAIN2            Br if all symbols removed from the ->
+                                    hash table chain header
+         MVC   0(4,2),SYMNEXT-SYMBOL(1)  Remove the SYMBOL from the   ->
+                                          hash table
+         MVC   SYMNEXT-SYMBOL(,1),SYMLIST  Add the SYMBOL to SYMLIST
+         ST    1,SYMLIST
+         AHI   3,1                 Update the counter
+         B     RECHAIN1            Do it again
+RECHAIN2 AHI   2,4                 Compute addr of the next header
+         BCT   0,RECHAIN1          Do it again
+         ST    3,SYMCOUNT          Store the symbol counter
+         L     15,=V(QSORTL)       Sort the SYMLIST chain
+         CALL  (15),MF=(E,SORTPARM)
+         TIMEUSED STORADR=TIME04,CPU=MIC,LINKAGE=SYSTEM
+         LA    3,SYMLIST-(SYMNEXT-SYMBOL)  Load addr of a dummy SYMBOL
+RPT0100  ICM   3,B'1111',SYMNEXT-SYMBOL(3) Load addr of the next SYMBOL
+         BZ    RPT0700             Br if all symbols scanned
+         ICM   0,B'1111',SYMXREF-SYMBOL(3) Any references?
+         BNZ   RPT0200                     Yep
+         OI    FLAGS,NOXREF
+         B     RPT0100
+RPT0200  MVI   FMTWORK+4,C' '      Start building the output line
+         MVC   FMTWORK+5(L'SYMNAME),SYMNAME-SYMBOL(3)
+         LHI   0,1
+         A     0,SYMXRCNT
+         ST    0,SYMXRCNT
+         TRTR  FMTWORK+5+L'SYMNAME-1(L'SYMNAME),FINDNBL  Find the end ->
+                                                          of the symbol
+         BNZ   *+L'*+2             Br if not all blanks
+         DC    H'0'                Oops
+         LA    0,FMTWORK+5+8       Set initial cell address
+         LA    4,1(,1)             Add 1 to end of symbol
+         CR    4,0                 Test
+         BH    *+L'*+2             Br if symbol > 8 bytes
+         LR    4,0                 Set default start
+         LH    5,(DCBLRECL-IHADCB)+PRINT  Load max line length
+         LA    5,FMTWORK(5)        Compute addr of the end of the line
+*        L     15,=V(QSORTL)       Sort the XREFs
+*        CALL  (15),(SYMXREF-SYMBOL(,3),,SORTCOMP2),MF=(E,SORTPARM)
+         LA    6,SYMXREF-SYMBOL-(XRNEXT-XREF)(,3)  Compute addr of a  ->
+                                                    dummy XREF
+RPT0300  ICM   6,B'1111',XRNEXT-XREF(6)  Load addr of the next XREF
+         BZ    RPT0600             Br if end of the list
+         LA    0,10(,4)            Compute trial end of this cell
+         CR    0,5                 Will cell fit on this line?
+         BNH   RPT0400             Yep
+         LA    1,FMTWORK           Prepare the RDW
+         SR    4,1
+         SLL   4,16
+         ST    4,0(,1)             Store the RDW
+         BAS   14,OUTEDIT          Print the line
+         MVC   FMTWORK+5(10),FMTWORK+4  Prepare the next line
+         LA    4,FMTWORK+5+8
+RPT0400  MVC   0(2,4),=CL2' '      Init the cell
+         TM    XRFLAG-XREF(6),XRMOD  Is symbol modified in module?
+         BZ    RPT0500               No
+         MVI   1(4),C'*'           Flag the module
+RPT0500  MVC   2(8,4),XRMEMBER-XREF(6)  Copy the member name
+         AHI   4,10                Compute addr of the next cell
+         B     RPT0300             Do it again
+RPT0600  LA    1,FMTWORK           Print
+         SR    4,1                  the
+         SLL   4,16                  last
+         ST    4,0(,1)                line
+         BAS   14,OUTEDIT
+         B     RPT0100             Do the next symbol
+RPT0700  TM    FLAGS,NOXREF
+         B     FREESYM             Zap to 4780 (BZ) to list           ->
+                                    unreferenced global symbols
+*                               ----+----1----+----2----+----3----+----
+         MVC   FMTWORK+4(43),=C'-THE FOLLOWING SYMBOLS ARE NOT REFERENC>
+               ED -'
+         LA    3,SYMLIST-(SYMNEXT-SYMBOL)  Compute addr of a dummy SYM
+         LA    4,FMTWORK+4+43      Load starting position in the line
+         LH    5,(DCBLRECL-IHADCB)+PRINT  Compute address of the end of
+         LA    5,FMTWORK(5)                the longest line
+RPT0800  ICM   3,B'1111',SYMNEXT-SYMBOL(3)  Load addr of the next SYM
+         BZ    RPT1000                      Br if done
+         ICM   0,B'1111',SYMXREF-SYMBOL(3)  Load addr of the first XREF
+         BNZ   RPT0800                      Br if XREF
+         TRTR  (SYMNAME-SYMBOL)+L'SYMNAME-1(L'SYMNAME,3),FINDNBL
+         BZ    RPT0800             Br if all blanks
+         LA    0,SYMNAME-SYMBOL(,3)  Compute the length of the SYMBOL
+         AHI   1,1
+         SR    1,0
+         BNP   RPT0800             Br if problem
+         LR    9,1                 Copy symbol length to reg 9
+         LA    0,1(1,4)            Compute trial end of the cell
+         CR    0,5                 Will symbol fit on the line?
+         BNH   RPT0900             Yes
+         LA    1,FMTWORK           Write the line
+         SR    4,1
+         SLL   4,16
+         ST    4,FMTWORK
+         BAS   14,OUTEDIT
+         MVI   FMTWORK+4,C' '      Prepare to resume
+         LA    4,FMTWORK+5
+RPT0900  MVI   0(4),C' '           Insert a blank
+         LA    14,1(,4)            Prepare to copy the symbol
+         LR    15,9                 to the output line
+         LA    8,SYMNAME-SYMBOL(,3)
+         MVCL  14,8                Copy the symbol
+         LR    4,14                Update the line position
+         B     RPT0800             Continue with the next symbol
+RPT1000  LA    1,FMTWORK           Print the last line
+         SR    4,1
+         SLL   4,16
+         ST    4,FMTWORK
+         BAS   14,OUTEDIT
+FREESYM  TIMEUSED STORADR=TIME05,CPU=MIC,LINKAGE=SYSTEM
+X0400    LA    1,FMT03             Write statistics
+         BAS   14,FMTLINE
+         LA    1,FMT09
+         BAS   14,FMTLINE
+         TIMEUSED STORADR=TIME06,CPU=MIC,LINKAGE=SYSTEM
+         MVC   TIME07,TIME01
+         LA    3,TIMETAB           Compute addr of the time table
+         LA    4,8                 Load length of an entry
+         LA    5,LTIMETAB          Compute addr of the last entry
+FMTTIME  LM    6,7,0(3)            Load address of starting time      ->
+                                    and format
+         LG    0,8(,6)             Load ending time
+         SG    0,0(,6)             Subtract starting time
+         STG   0,0(,6)             Store time
+         CVD   0,64(,13)           Convert microseconds to decimal
+         MVC   TIMEVAL,EDMASK      Copy edit mask to work area
+         ED    TIMEVAL,64(13)      Convert microseconds to digits
+         LR    1,7                 Copy format address to reg 1
+         BAS   14,FMTLINE          Write the line
+         BXLE  3,4,FMTTIME
+         LG    0,TIME06            Load end time
+         SG    0,TIME07            Subtract starting time
+         CVD   0,64(,13)           Convert total time to decimal
+         MVC   TIMEVAL,EDMASK      Copy edit mask to the work area
+         ED    TIMEVAL,64(13)      Conert total time to digits
+         LA    1,FMT08             Write total time
+         BAS   14,FMTLINE
+EXIT     LA    1,CPARM01           Close the data sets
+         BAS   14,CLOSELST
+         L     13,4(,13)           Load addr of the higher save area
+         RETURN (14,12),T,RC=0     Restore registers & return
+         EJECT
+* Start I/O to fill the I/O buffers
+         CNOP  0,8
+INITREAD BASR  15,0                Store current address in reg 15
+         SAVE  (14,4),,INITREAD    Save registers
+         LA    15,72(,13)          Compute addr of the next save area
+         ST    13,4(,15)           Add new save area to the
+         ST    15,8(,13)            save area chain
+         LR    13,15               Establisf new save area pointer
+         LHI   3,3                 Load number of DECBs
+         LA    4,DECBLIST          Compute addr of 1st DECB pointer
+INITR100 L     1,0(,4)             Load a DECB address
+         READ  (1),SF,MF=E         Start I/O to fill it
+         AHI   4,4                 Compute addr of next DECB pointer
+         BCT   3,INITR100          Go start I/O for it
+         XC    CURREC,CURREC       Reset CURREC
+         L     13,4(,13)           Load addr of the higher save area
+         RETURN (14,4),T           Restore registers & return
+         EJECT
+         CNOP  0,8
+READVB   BASR  15,0                Store current asddress in reg 15
+         SAVE  (14,3),,READVB      Save registers
+         LA    15,72(,13)          Compute next save area address
+         ST    13,4(,15)           Add the new save area
+         ST    15,8(,13)            to the save area chain
+         LR    13,15               Establish new save area pointer
+         ICM   2,B'1111',CURREC    Load addr of the next record
+         BNZ   RVB0200             Br if there is a next record
+RVB0100  L     3,DECBLIST          Load addr of the current DECB
+         CHECK (3)                 Wsit for I/O to complete
+         L     2,DECAREA-DECB(,3)  Load address of the I/O buffer
+         LH    1,0(,2)             Load the data length in the BDW
+         LA    15,0(1,2)           Add the data length to buffer addr
+         ST    15,EOB              Store the BDW
+         AHI   2,4                 Compute addr of the first record
+RVB0200  C     2,EOB               All records processed?
+         BL    RVB0300             No
+         L     3,DECBLIST          Rotate the DECBs
+         MVC   DECBLIST(8),DECBLIST+4
+         ST    3,DECBLIST+8
+         READ  (3),SF,MF=E         Start I/O to fill the buffer
+         B     RVB0100             Go process the next buffer
+RVB0300  LH    0,0(,2)             Load the record length
+         AR    0,2                 Compute addr of the next record
+         ST    0,CURREC
+         L     13,4(,13)           Load addr of the higher save area
+         ST    2,24(,13)           Replace caller's reg 1 w/record addr
+         LHI   0,1                 Update
+         A     0,RCOUNT             record
+         ST    0,RCOUNT              count
+         RETURN (14,3),T           Restore registers & return
+         ORG   *-2                 Replace the BR 14
+         B     4(,14)              Return to +4
+MEOF     L     13,4(,13)           Load addr of the higher save area
+         RETURN (14,3),T           Restore registers & return
+         EJECT
+         CNOP  0,8
+GETSYM   BASR  15,0                Store current address in reg 15
+         SAVE  (14,12),,GETSYM     Save registers
+         LA    15,72(,13)
+         ST    13,4(,15)
+         ST    15,8(,13)
+         LR    13,15
+         LR    3,1                 Copy symbol address to reg 3
+         BAS   14,HASHFUNC         Compute the hash table offset
+         LA    2,HASHTAB(1)        Compute hash table address
+         LR    1,2                 Copy the chain header address to   ->
+                                    reg 1
+GETS0100 ICM   1,B'1111',SYMNEXT-SYMBOL(1)  Load addr of the next     ->
+                                             SYMBOL
+         BZ    GETS0200            Br if symbol not found
+         CLC   SYMNAME-SYMBOL(,1),0(3)  Got the right SYMBOL?
+         BNE   GETS0100                 No
+         B     GETS0300                 Yep
+GETS0200 LA    0,SYMSIZE           Load the size of a SYMBOL
+*        GETMAIN RU,LV=(0),LOC=(31,ANY)  Allocate a new SYMBOL
+         BAS   14,GETMAIN          Allocate a new SYMBOL
+         XC    0(SYMSIZE,1),0(1)   Clear the SYMBOL
+         MVC   SYMNAME-SYMBOL(,1),0(3)  Copy the symbol name
+         MVC   SYMNEXT-SYMBOL(,1),0(2)  Add the SYMBOL to the
+         LA    0,SYMXREF-SYMBOL(,1)
+         ST    0,(SYMXREF-SYMBOL)+4(,1)
+         ST    1,0(,2)                   hash table
+GETS0300 L     13,4(,13)
+         ST    1,24(,13)           Replace caller's reg 1 w/ the      ->
+                                     SYMBOL address
+         RETURN (14,3)             Restore regs & return
+         EJECT
+         CNOP  0,8
+FINDSYM  BASR  15,0                Store current address in reg 15
+         SAVE  (14,3),,FINDSYM     Save registers
+         LR    3,1                 Copy symbol address to reg 3
+         BAS   14,HASHFUNC         Compute the hash table offset
+         LA    2,HASHTAB(1)        Compute hash table address
+         LR    1,2                 Copy the chain header address to   ->
+                                    reg 1
+FINDS100 ICM   1,B'1111',SYMNEXT-SYMBOL(1)  Load addr of the          ->
+                                             next SYMBOL
+         BZ    FINDS200            Oops, symbol not found
+         CLC   SYMNAME-SYMBOL(,1),0(3)  Right SYMBOL?
+         BNE   FINDS100                 No
+FINDS200 ST    1,24(,13)           Replace caller's reg 1 w/ the      ->
+                                    SYMBOL address
+         RETURN (14,3)             Restore regs & return
+         EJECT
+         CNOP  0,8
+HASHFUNC LR    1,3                 Copy SYMBOL address to reg 1
+         TRTR  79(80,3),FINDNBL    Find the end of the name
+         BNZ   *+L'*+2             Found a non-blank?
+         DC    H'0'
+         AHI   1,1                 Add 1
+         LR    15,3                Compute the length
+         SR    15,1
+         CHI   15,8                Length > 8
+         BH    HF0100              Yep
+         PACK  72-8(5,13),0(9,3)   Compact 8 bytes to 4 bytes
+         B     HF0200
+HF0100   LR    15,1                Copy end of name to reg 15
+         AHI   15,-4               Subtract 4
+         MVC   72-17(4,13),0(3)    Build an 8 byte pseudo name from the
+         MVC   72-17+4(4,13),0(15)  first 4 bytes and the last 8 bytes
+         PACK  72-8(5,13),72-17(9,13)  Compact the pseudo name
+HF0200   SR    0,0
+         L     1,72-8(,13)         Load the compacted neme
+         D     0,=A(HASHNUM)       Divide by HASHTAB entries
+         LR    1,0                 Copy the remainder to reg 1
+         SLL   1,2                 Multiiply remainder by 4
+         BR    14
+         EJECT
+         CNOP  0,8
+INITHDR  BASR  15,0                Store current address in reg 15
+         SAVE  (14,0),,INITHDR     Save registers
+         LA    15,72(,13)          Compute addr of the next save area
+         ST    13,4(,15)           Add new save area to the
+         ST    15,8(,13)            save area chain
+         LR    13,15               Establish new save area pointer
+         LA    0,FMTWORK           Load addr of the MINIFMT work area
+         LA    1,FMT01             Load addr of the format
+         L     15,=V(MINIFMT)      Load addr of the format program
+         CALL  (15)                Format the system date & time
+         LA    0,4(,1)             Compute addr of the date & time text
+         LH    15,0(,1)            Load length of the message
+         AHI   15,-4               Compute length of the next
+         LA    14,PAGEHDR+97       Compute addr of date & time in hdr
+         LR    1,15                Copy length to reg 1
+         MVCL  14,0                Copy date & time to the page hdr
+         L     13,4(,13)           Load addr of the higher save area
+         RETURN (14,0),T           Restore registers & return
+         EJECT
+         CNOP  0,8
+TESTDD   BASR  15,0                Store current addr in reg 16
+         SAVE  (14,3),,TESTDD      Save registers
+         LR    2,1                 Copy OPEN parm list addr to reg 2
+         SR    3,3                 Set the return code
+TDD0100  L     1,0(,2)             Load a DCB address
+         N     1,=A(X'FFFFFF')     Isolate the 24-bit DCB address
+         DEVTYPE DCBDDNAM-IHADCB(,1),64(,13)  Test if DD present
+         LTR   15,15               Test DEVTYPE return code
+         JZ    TDD0200             Br if RC = 0
+         LHI   3,4                 Reset my return code
+TDD0200  TM    0(2),X'80'          Test if end of the OPEN parm list
+         LA    2,4(,2)             Compute addr of the next DCB pointer
+         JZ    TDD0100             Br if not end of the OPEN parm list
+         LR    15,3                Copy my return code to reg 15
+         RETURN (14,3),T,RC=(15)   Restore regs & return
+         EJECT
+         CNOP  0,8
+OPENLIST BASR  15,0                Store current address in reg 15
+         SAVE  (14,2),,OPENLIST    Save registers
+         LR    2,1                 Copy parm list addr to reg 2
+         OPEN  MF=(E,(2))          Open the DCBs
+         SR    15,15               Set preliminary return code
+OL0100   L     1,0(,2)             Load a DCB address
+         N     1,=A(X'FFFFFF')     Isolate the 24-bit DCB address
+         TM    DCBOFLGS-IHADCB(1),DCBOFOPN  Test if the DCB is open
+         JO    *+8                 Br if so
+         LHI   15,4                Reset the return code
+         TM    0(2),X'80'          Test if end of the parm list
+         LA    2,4(,2)             Compute addr of the next DCB pointer
+         JZ    OL0100              Br if not end of the parm list
+         RETURN (14,2),T,RC=(15)   Restore regs & return
+         EJECT
+         CNOP  0,8
+CLOSELST BASR  15,0                Store current address in reg 15
+         SAVE  (14,2),,CLOSELST    Save registers
+         LR    2,1                 Copy parm list address to reg 2
+         CLOSE MF=(E,(1))          Close the DCBs
+CL0100   L     1,0(,2)             Load a DCB addr from the parm list
+         N     1,=A(X'FFFFFF')     Isolate the 24-bit DCB address
+         TM    DCBOFLGS-IHADCB(1),DCBOFOPN  Test if the DCB is open
+         JO    CL0200              Br if so
+         TM    (DCBBUFCB-IHADCB)+3(1),1  Test if there is a buffer pool
+         JO    CL0200              Br if not
+         FREEPOOL (1)              Free the buffer pool
+CL0200   TM    0(2),X'80'          Test if end of the parm list
+         LA    2,4(,2)             Compute addr of the next DCB pointer
+         JZ    CL0100              Br if not end of the parm list
+         RETURN (14,2),T           Restore registers & return
+         EJECT
+         CNOP  0,8
+FMTLINE  BASR  15,0                Store current address in reg 15
+         SAVE  14,,FMTLINE         Save reg 14
+         LA    15,72(,13)          Compute addr of the next save area
+         ST    15,8(,13)           Add new save area to the
+         ST    13,4(,15)            save area chain
+         LR    13,15               Establish new save area pointer
+         LA    0,FMTWORK           Load addr of the MINIFMT work area
+         L     15,=V(MINIFMT)      Load addr of MINIFMT
+         CALL  (15)                Format the line
+         BRAS  14,OUTEDIT          Write the formatted line
+         L     13,4(,13)           Load addr of the higher save area
+         RETURN 14,T               Restore reg 14 & return
+         EJECT
+         CNOP  0,8
+OUTEDIT  BASR  15,0                Store current address in reg 15
+         SAVE  (14,4),,OUTEDIT     Save registers
+         LR    2,1                 Copy line address to reg 2
+         SR    3,3                 Set reg 3 = 0
+         SR    4,4                 Set reg 4 = 0
+         LA    15,72(,13)          Compute addr of the next save area
+         ST    15,8(,13)           Add new save area to the
+         ST    13,4(,15)            save area chain
+         LR    13,15               Establish new save area pointer
+         LH    15,0(,2)            Load the line length
+         AR    15,2                Compute addr of the end of the line
+         BCTR  15,0                Backup 1 byte
+         TM    0(15),255-C' '      Blank?
+         BZ    *-6                 Br if so
+         AHI   15,1                Add 1
+         SR    15,2                Compute the net line length
+         CHI   15,5                Compare w/ 5
+         BNL   *+L'*+4             Br if line length >= 5
+         LHI   15,5                Set line length = 5
+         STH   15,0(,2)            Store the adjusted line length
+*        LR    0,15                Load the line length
+*        CH    0,(DCBLRECL-IHADCB)+PRINT  Test the length
+*        JNH   *+L'*+6             Br if length <= lrecl
+*        MVC   0(2,2),(DCBLRECL-IHADCB)+PRINT  Reset the length
+         IC    3,4(,1)             Load the carriage control character
+         IC    4,OELINES(3)        Load lines this line will print
+         AH    4,LINECT            Add current page position
+         CHI   4,60                Compare new page position with     ->
+                                    max lines on a page
+         JNH   OE0100              Br if new line will fit on the     ->
+                                    current page
+         AP    PAGENUM,=P'1'       Add 1 to the page number
+         MVC   PAGE#,=X'402020202120'  Convert page number to digits
+         ED    PAGE#,PAGENUM
+         PUT   PRINT,PAGEHDR       Write the page header
+         LHI   0,1                 Update the
+         A     0,OCOUNT             record
+         ST    0,OCOUNT              count
+         MVI   4(2),C'0'           Replace the carriage control
+         LHI   4,3                 Set new page position
+OE0100   PUT   PRINT,(2)           Write the line
+         LHI   0,1                 Update the
+         A     0,OCOUNT             record
+         ST    0,OCOUNT              count
+         STH   4,LINECT            Update the page position
+         STC   3,4(,2)             Restore original carriage control
+         L     13,4(,13)           Load addr of the higher save area
+         RETURN (14,4),T           Restore registers & return
+         EJECT
+         CNOP  0,8
+L        USING SYMBOL,14
+R        USING SYMBOL,1
+SORTCOMP SAVE  14
+         LM    14,15,0(1)
+         L     14,0(,14)
+         L     1,0(,15)
+         LHI   15,1
+         CLC   L.SYMNAME,R.SYMNAME
+         JH    SC0300
+         JL    SC0200
+*        J     SC0100
+SC0100   SR    15,15
+         J     SC0300
+SC0200   LNR   15,15
+SC0300   RETURN 14,RC=(15)
+         DROP  L,R
+         DC    0D'0'
+         EJECT
+***********************************************************************
+*                                                                     *
+* Title -- GETMAIN and FREEALL                                        *
+*                                                                     *
+* Function / Operation -- GETMAIN and FREEALL provide a cell pool     *
+*   like function for programs that allocate, but do not normally     *
+*   free, large numbers of small amounts of storage.  GETMAIN         *
+*   allocates storage in storage blocks that are always a 4K          *
+*   multiple.  FREEALL releases all of storage allocated by           *
+*   GETMAIN.  GETMAIN returns the address of the storage it           *
+*   allocates in register 1.  The address returned by GETMAIN is      *
+*   always on a doubleword boundary.  The storage request for         *
+*   GETMAIN is unconditional.  If GETMAIN cannot allocate the         *
+*   requested storage in an existing storage cell the task will       *
+*   abnormally terminate with an x78 ABEND.                           *
+*                                                                     *
+* Calling Sequence --                                                 *
+*            L     0,amount-of-storage                                *
+*            BRAS  14,GETMAIN                                         *
+*                                                                     *
+*            BRAS  14,FREEALL                                         *
+*                                                                     *
+* Attributes -- GETMAIN and FREEALL are not reenterable, reusable,    *
+*   and not refreshable.  They operate in task mode, in problem       *
+*   state and problem key.  The storage address returned by this      *
+*   version of GETMAIN is always located below the 16-meg line; a     *
+*   simple change to GETMAIN will return storage above the line.      *
+*   GETMAIN and FREEALL are AMODE ANY, RMODE ANY.                     *
+*                                                                     *
+* Status / Change Level --                                            *
+*   V1L0 -- August 2010                                               *
+*                                                                     *
+***********************************************************************
+         SPACE 5
+         DC    0D'0'
+         PUSH  USING
+         DROP  ,
+CPAMT    EQU   4*1024              BYTES IN A SINGLE CELL POOL
+GETMAIN  BASR  15,0                STORE CURRENT ADDRESS IN REG 15
+         USING *,12                ESTABLISH ADDRESSABILITY
+         USING CPOOL,11
+         SAVE  (14,12),,GETMAIN    SAVE REGISTERS
+         LR    12,15               COPY ENTRY POINT ADDRESS TO REG 12
+         LR    2,0                 COPY AMOUNT OF STORAGE TO REG 2
+         AHI   2,7                 ROUND REQUEST UP TO AN 8 BYTE
+         N     2,ROUND8             MULTIPLE
+GM0100   LA    11,CPLIST-(CPNEXT-CPOOL)  LOAD ADDR OF A DUMMY CPOOL
+GM0200   ICM   11,B'1111',CPNEXT   LOAD ADDR OF THE NEXT CPOOL
+         JZ    GM0300              BR IF END OF LIST
+         C     2,CPLEFT            COMPARE REQUESTED AMOUNT WITH      ->
+                                    FREE STORAGE IN THIS CPOOL
+         JH    GM0200              BR IF NOT ENOUGH STORAGE IN THIS   ->
+                                    CPOOL
+         MVC   24(4,13),CPNEXTA    REPLACE CALLER'S REG 1 W/ CURRENT  ->
+                                    FREE SPACE ADDRESS IN THIS CPOOL
+         L     0,CPLEFT            LOAD FREE BYTES IN THIS CPOOL
+         SR    0,2                 SUBTRACT AMOUNT OF STORAGE WE      ->
+                                    JUST ALLOCATED
+         ST    0,CPLEFT            UPDATE FREE SPACE AMOUNT
+         A     2,CPNEXTA           ADD ADDRESS OF STORAGE WE JUST     ->
+                                    ALLOCATED TO AMOUNT OF STORAGE    ->
+                                     WE JUST ALLOCATED
+         ST    2,CPNEXTA           UPDATE ADDRESS OF FREE STORAGE
+         J     GM0600              AND EXIT
+GM0300   LHI   0,CPAMT-(CPSTART-CPOOL)  SET REG 0 = FREE STORAGE IN A ->
+                                         SINGLE CPOOL
+GM0400   CR    0,2                 COMPARE W/ AMOUNT WE NEED
+         JNL   GM0500              BR IF ENOUGH
+         AHI   0,CPAMT             ADD CPAMT TO REG 0
+         J     GM0400              CONTINUE
+GM0500   AHI   0,CPSTART-CPOOL     SET REG 0 TO A K MULTIPLE
+         LR    3,0                 COPY AMOUNT OF STORAGE TO REG 3
+         GETMAIN RU,LV=(0),LOC=(31,ANY)  ALLOCATE STORAGE
+         LR    11,1                COPY ADDRESS TO REG 11
+*        XC    0(CPSTART-CPOOL,11),0(11)  CLEAR THE HEADER
+         ST    3,CPSIZE            STORE THE SIZE
+         LA    0,CPSTART
+         ST    0,CPNEXTA
+         AHI   3,-(CPSTART-CPOOL)  SUBTRACT HEADER SIZE FROM          ->
+                                    ALLOCATED STORAGE
+         ST    3,CPLEFT            STORE FREE SPACE SIZE
+         MVC   CPNEXT,CPLIST       ADD THE NEW SUBPOOL TO THE
+         ST    11,CPLIST            SUBPOOL CHAIN
+         J     GM0100              AND RESTART ALLOCATION
+GM0600   RETURN (14,12),T          RESTORE REGS & RETURN
+         SPACE 1
+ROUND8   DC    F'-8'
+         SPACE 5
+         CNOP  0,8
+FREEALL  BASR  15,0                STORE CURRENT ADDRESS IN REG 15
+         USING *,12                ESTABLISH ADDRESSABILITY
+         SAVE  (14,12),,FREEALL    SAVE REGISTERS
+         LR    12,15               COPY THE ENTRY POINT ADDR TO REG 12
+FR0100   ICM   11,B'1111',CPLIST   LOAD ADDR OF THE NEXT CPOOL
+         JZ    FR0200              EXIT IF DONE
+         MVC   CPLIST,CPNEXT       REMOVE CURRENT CPOOL FROM THE CHAIN
+         L     0,CPSIZE            LOAD SIZE
+         FREEMAIN RU,LV=(0),A=(11) FREE THE CPOOL
+         J     FR0100              GO FREE THE NEXT CPOOL
+FR0200   RETURN (14,12),T          RESTORE REGS & RETURN
+         SPACE 1
+CPLIST   DC    A(*-*)              ADDRESS OF FIRST SUBPOOL
+*        DC    0D'0'
+*        LTORG ,                   DEFINE A LITERAL POOL
+         DC    0D'0'
+CPOOL    DSECT                     CELL POOL CONTAINER
+CPNEXT   DS    A                   ADDRESS OF THE NEXT CONTAINER
+CPSIZE   DS    F                   BYTES ALLOCATED FOR THIS SUBPOOL
+CPLEFT   DS    F                   FREE BYTES LEFT IN THIS CONTAINER
+CPNEXTA  DS    A,0D                ADDRESS OF FIRST FREE BYTE
+CPSTART  EQU   *
+         POP   USING
+         EJECT
+GBLXREFD CSECT
+GBLXREFD RMODE 24
+OELINES  DC    0XL256'0'
+* These statements depend on the EBCDIC collating sequence
+         DC    (C' ')X'FF',AL1(1) Blank < + < - < 0              1 OF 5
+         DC    (C'+'-(*-OELINES))X'FF',AL1(0)                    2 OF 5
+         DC    (C'-'-(*-OELINES))X'FF',AL1(3)                    3 OF 5
+         DC    (C'0'-(*-OELINES))X'FF',AL1(2)                    4 OF 5
+         DC    (256-(*-OELINES))X'FF'                            5 OF 5
+FINDNBL  DC    0XL256'0',X'00',(C' '-(*-FINDNBL))X'04'
+         DC    X'00',(256-(*-FINDNBL))X'04'
+TESTNUM  DC    0XL256'0',(C'0')X'04',10X'00',(256-(*-TESTNUM))X'04'
+SAVEAREA DC    (5*9)D'0'           5 72 byte OS/360 save areas
+FMTWORK  DC    XL200'0'            MINIFMT work area
+         ORG   FMTWORK
+VARIABLE DS    CL80
+         ORG   ,
+HASPDOC  DC    CL8'HASPDOC'
+TIME01   DC    FD'0'
+TIME02   DC    FD'0'
+TIME03   DC    FD'0'
+TIME04   DC    FD'0'
+TIME05   DC    FD'0'
+TIME06   DC    FD'0'
+TIME07   DC    FD'0'
+TIMETAB  DC    A(TIME01,FMT04)
+         DC    A(TIME02,FMT05)
+         DC    A(TIME03,FMT06)
+         DC    A(TIME04,FMT07)
+LTIMETAB DC    A(TIME05,FMT10)
+LINECT   DC    H'255',0F'0'        Initial page position
+SYMLIST  DC    A(*-*)
+SYMCOUNT DC    F'0'
+XREFCOUNT DC   F'0'
+RCOUNT   DC    F'0'
+OCOUNT   DC    F'2'
+SYMXRCNT DC    F'0'
+TTR      DC    F'0'
+SORTPARM CALL  ,(SYMLIST,SYMOFF,SORTCOMP),MF=L
+SYMOFF   DC    A(SYMNEXT-SYMBOL)
+         PUSH  PRINT
+         PRINT NOGEN
+OPARM01  OPEN  (PRINT,OUTPUT,SYSADATA,INPUT,DIR,INPUT),MF=L
+CPARM01  CLOSE (PRINT,,SYSADATA,,DIR),MF=L
+PRINT    DCB   DSORG=PS,MACRF=PM,DDNAME=SYSPRINT,RECFM=VBA,LRECL=125
+SYSADATA DCB   DSORG=PO,MACRF=R,DDNAME=SYSADATA,EODAD=MEOF,           ->
+               NCP=3,BUFNO=3
+DIR      DCB   DSORG=PS,MACRF=GL,DDNAME=SYSADATA,EODAD=DEOF,          ->
+               RECFM=F,LRECL=256,BLKSIZE=256
+EOB      DC    A(*-*)
+CURREC   DC    A(*-*)
+DECBLIST DC    A(DECB1,DECB2,DECB3)
+         READ  DECB1,SF,SYSADATA,*-*,'S',MF=L
+         READ  DECB2,SF,SYSADATA,*-*,'S',MF=L
+         READ  DECB3,SF,SYSADATA,*-*,'S',MF=L
+         POP   PRINT
+         DC    0D'0'
+         LTORG ,
+*                 0----+----1----+--
+EDMASK   DC    0C' NNNNNNNNN.NNNNNN',C' ',7X'20',X'2120',C'.',6X'20'
+TIMEVAL  DC    CL(L'EDMASK)' '
+LEFT     EQU   ((120-L'HDR)/2)+1
+RIGHT    EQU   111-LEFT-L'HDR
+*VHDR     DC    0C'(GBLXREF &SYSDATE &SYSTIME)  '
+PAGEHDR  DC    AL2(PAGEHDRL,0),CL(LEFT)'1(GBLXREF &SYSDATE &SYSTIME)'
+HDR      DC    C'G L O B A L   X R E F   U T I L I T Y'
+*        DC    CL(RIGHT-L'VHDR)' ',C'(GBLXREF &SYSDATE &SYSTIME) '
+         DC    CL(RIGHT)' '
+         DC    C'PAGE'
+PAGE#    DC    C' NNNNN'
+PAGEHDRL EQU   *-PAGEHDR
+PAGENUM  DC    P'00000'
+         SPACE 1
+FMT01    DC    AL.2(2),AL.6(4),AL1(1,1),X'FF' Format system date & time
+         SPACE 1
+FMT02    DC    AL1(L'FMT02A)
+FMT02A   DC    C' MEMBER '
+         DC    AL.2(3),AL.6(0),AL1(L'HASPDOC,0),SL2(HASPDOC)
+         DC    AL1(L'FMT02B)
+FMT02B   DC    C' IS NOT IN THE SYSADATA DATA SET',X'FF'
+         SPACE 1
+FMT03    DC    AL1(1),C'-'
+         DC    AL.2(3),AL.6(1),AL1(L'SYMCOUNT,0),SL2(SYMCOUNT)
+         DC    AL1(L'FMT03B)
+FMT03B   DC    C' GLOBAL SYMBOLS FOUND, '
+         DC    AL.2(3),AL.6(1),AL1(L'SYMXRCNT,0),SL2(SYMXRCNT)
+         DC    AL1(L'FMT03F)
+FMT03F   DC    C' SYMBOLS HAVE AT LEAST ONE XREF, '
+         DC    AL.2(3),AL.6(1),AL1(L'XREFCOUNT,0),SL2(XREFCOUNT)
+         DC    AL1(L'FMT03E)
+FMT03E   DC    C' XREF ENTRIES,',X'FF'
+         SPACE 1
+FMT09    DC    AL1(1),C' '
+         DC    AL.2(3),AL.6(1),AL1(L'RCOUNT,0),SL2(RCOUNT)
+         DC    AL1(L'FMT09B)
+FMT09B   DC    C' INPUT RECORDS, '
+         DC    AL.2(3),AL.6(1),AL1(L'OCOUNT,0),SL2(OCOUNT)
+         DC    AL1(L'FMT09C)
+FMT09C   DC    C' OUTPUT RECORDS',X'FF'
+         SPACE 1
+FMT04    DC    AL1(L'FMT04A)
+FMT04A   DC    C'0ANALYZE HASPDOC '
+         DC    AL.2(3),AL.6(0),AL1(6,6),SL2(TIMEVAL+7)
+         DC    AL1(L'FMT04B)
+FMT04B   DC    C' SECONDS',X'FF'
+         SPACE 1
+FMT05    DC    AL1(L'FMT05A)
+FMT05A   DC    C' ANALYZE MEMBERS '
+         DC    AL.2(3),AL.6(0),AL1(6,6),SL2(TIMEVAL+7)
+         DC    AL1(L'FMT05B)
+FMT05B   DC    C' SECONDS',X'FF'
+         SPACE 1
+FMT06    DC    AL1(L'FMT06A)
+FMT06A   DC    C' SORT SYMBOLS    '
+         DC    AL.2(3),AL.6(0),AL1(6,6),SL2(TIMEVAL+7)
+         DC    AL1(L'FMT06B)
+FMT06B   DC    C' SECONDS',X'FF'
+         SPACE 1
+FMT07    DC    AL1(L'FMT07A)
+FMT07A   DC    C' PRINT REPORT    '
+         DC    AL.2(3),AL.6(0),AL1(6,6),SL2(TIMEVAL+7)
+         DC    AL1(L'FMT07B)
+FMT07B   DC    C' SECONDS',X'FF'
+         SPACE 1
+FMT08    DC    AL1(L'FMT08A)
+FMT08A   DC    C' TOTAL TIME      '
+         DC    AL.2(3),AL.6(0),AL1(6,6),SL2(TIMEVAL+7)
+         DC    AL1(L'FMT08B)
+FMT08B   DC    C' SECONDS',X'FF'
+         SPACE 1
+FMT10    DC    AL1(L'FMT10A)
+FMT10A   DC    C' FREE SYMBOLS    '
+         DC    AL.2(3),AL.6(0),AL1(6,6),SL2(TIMEVAL+7)
+         DC    AL1(L'FMT10B)
+FMT10B   DC    C' SECONDS',X'FF'
+         SPACE 1
+FLAGS    DC    AL1(0)
+NOXREF   EQU   X'04'
+         SPACE 1
+         DC    0D'0'
+* HASHTAB is the end of addressability
+HASHTAB  DC    (((32*1024)/4)-1)A(*-*)  This value is high to support ->
+                                         50,000 symbols and keep the  ->
+                                        entries in the alias chains low
+HASHNUM  EQU   (*-HASHTAB)/L'HASHTAB
+         DC    0D'0'
+         END   GBLXREF

@@ -1,0 +1,45 @@
+//*  JCL to assemble and link the modules in GBLXREF.
+//*  &SYSUID..GBLXREF.CBT.PDS is this data set; alter it to match
+//*  your standards.
+//*  &SYSUID..GBLXREF.LOAD is the data set where GBLXREF and
+//*  related modules will reside.  The JCL deletes and reallocates
+//*  data set.  Adjust the PREP step and the DD statement with DD
+//*  name SYSLMOD in the LINK step to store the modules in an existing
+//*  data set.
+//*
+//*  Note that JESASM and GBLXREF require the High Level Assembler's
+//*  SASMMAC1 data set.
+//*
+//ASM     PROC M='?'
+//C       EXEC PGM=ASMA90,PARM='OBJECT,NODECK,XREF(SHORT)'
+//SYSPRINT DD  SYSOUT=*
+//SYSLIB   DD  DISP=(SHR,PASS),DSN=ASM.SASMMAC1
+//         DD  DISP=(SHR,PASS),DSN=SYS1.MODGEN
+//         DD  DISP=(SHR,PASS),DSN=SYS1.MACLIB
+//SYSLIN   DD  DISP=(MOD,PASS),UNIT=SYSDA,SPACE=(CYL,(1,1,2)),
+//             DCB=(RECFM=FB,LRECL=80,BLKSIZE=3200),DSN=&&O(&M)
+//SYSIN    DD  DISP=(SHR,PASS),DSN=&SYSUID..GBLXREF.CBT.PDS(&M)
+//        PEND
+//PREP    EXEC PGM=IEFBR14
+//SYSLMOD  DD  DISP=(MOD,DELETE),UNIT=SYSDA,SPACE=(TRK,0),
+//             DSN=&SYSUID..GBLXREF.LOAD
+//GBLXREF EXEC ASM,M=GBLXREF
+//JESASM  EXEC ASM,M=JESASM
+//MEMBLIST EXEC ASM,M=MEMBLIST
+//MINIFMT EXEC ASM,M=MINIFMT
+//QSORTS  EXEC ASM,M=QSORTS
+//LINK    EXEC PGM=IEWL,PARM='MAP,LIST'
+//SYSPRINT DD  SYSOUT=*
+//OBJ      DD  DISP=(OLD,PASS),DSN=&&O
+//SYSLMOD  DD  DISP=(,CATLG),UNIT=SYSDA,SPACE=(TRK,(2,1,1)),
+//             DSN=*.PREP.SYSLMOD
+//SYSLIN   DD  *
+ INCLUDE OBJ(GBLXREF,QSORTS,MINIFMT)
+ ENTRY GBLXREF
+ NAME  GBLXREF(R)
+ INCLUDE OBJ(MEMBLIST)
+ ENTRY MEMBLIST
+ NAME  MEMBLIST(R)
+ INCLUDE OBJ(JESASM)
+ ENTRY JESASM
+ NAME  JESASM(R)

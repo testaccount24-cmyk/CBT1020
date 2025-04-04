@@ -1,0 +1,52 @@
+* TITLE - MEMBLIST
+*
+* FUNCTION / OPERATION - MEMBLIST GENERATES A CONTROL DATA SET FOR
+*   THE JESASM UTILITY
+         SPACE 2
+MEMBLIST CSECT
+         USING *,12                ESTABLISH MEMBLIST ADDRESSABILITY
+         SAVE  (14,12),,*          SAVE REGISTERS
+         LR    12,15               PREPARE MEMBLIST BASE REGISTER
+         LR    15,13               SAVE AREA ADDRESS TO REG 15
+         LA    13,SAVEAREA         COMPUTE NEW SAVE AREA ADDRESS
+         ST    15,4(,13)           ADD NEW SAVE AREA TO THE
+         ST    13,8(,15)            SAVE AREA CHAIN
+         OPEN  (PDS,INPUT,SYSPUNCH,OUTPUT)  OPEN THE DATA SETS
+         LA    2,X'1F'             INIT REG 2
+DIR0100  GET   PDS                 READ A DIRECTORY BLOCK
+         LA    10,2(,1)            COMPUTE ADDRESS OF THE FIRST       ->
+                                    DIRECTORY ENTRY
+         LH    11,0(,1)            LOAD USED BYTES IN THE DIRECTORY BLK
+         LA    11,0(11,1)          COMPUTE ADDRESS OF END OF DATA IN  ->
+                                    THE DIRECTORY BLOCK
+DIR0200  CLC   =FL8'-1',0(10)      END OF DIRECTORY?
+         BE    EOF                 YES
+         MVC   MEMBER,0(10)        COPY MEMBER NAME TO THE OUTPUT REC
+         PUT   SYSPUNCH,CARD       WRITE THE OUTPUT RECORD
+         IC    1,11(,10)           LOAD BYTES OF USER DATA IN THE     ->
+                                    DITRECTORY ENTRY
+         NR    1,2                 ISOLATE USER DATA SIZE
+         LA    1,12(1,1)           COMPUTE BYTES IN THE DIRECTORY ENTRY
+         AR    10,1                COMPUTE ADDRESS OF THE NEXT        ->
+                                    DIRECTORY ENTRY
+         CR    10,11               NEXT DIRECTORY ENTRY IN THIS       ->
+                                    DIRECTORY BLOCK?
+         BL    DIR0200             YES
+         B     DIR0100
+EOF      CLOSE (SYSPUNCH,,PDS)     CLOSE THE DATA SETS
+         L     13,4(,13)           LOAD ADDRESS OF THE HIGHER SAVE AREA
+         RETURN (14,12),RC=0       RESTORE REGISTERS & RETURN
+         PRINT NOGEN
+SAVEAREA DC    9D'0'               72 BYTE REGISTER SAVE AREA
+PDS      DCB   DSORG=PS,MACRF=GL,DDNAME=PDS,EODAD=EOF,  DCB TO READ A ->
+               RECFM=F,LRECL=256,BLKSIZE=256            PDS DIRECTORY
+SYSPUNCH DCB   DSORG=PS,MACRF=PM,DDNAME=SYSPUNCH,  DCB TO WRITE THE   ->
+               RECFM=FB,LRECL=80                    OUTPUT DATA SET
+CARD     DC    0CL80' '            OUTPUT RECORD
+MEMBER   DC    CL8' ',C' '         MEMBER NAME
+         DC    CL(L'CARD-(*-CARD))'LIST(133),GOFF',0D'0'  ASSEMBLER   ->
+                                                           OPTIONS
+         DC    0D'0'
+         LTORG ,                   LITERAL POOL
+         DC    0D'0'
+         END   MEMBLIST

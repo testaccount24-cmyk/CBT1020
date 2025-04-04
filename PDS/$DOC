@@ -1,0 +1,162 @@
+GBLXREF is a tool to contruct a global XREF of Assembler systems
+containing multiple modules.  GBLXREF was developed for JES2.
+It is a viable replacement for XREFASM in CBT file 162.
+
+The original inspiration for GBLXREF was a global symbol table in
+some PLM manuals for HASP-II Version 4.  Early versions of
+GBLXREF were much like the XREFASM utility in "file" 162 of the
+CBT collection, except it could process both Assembler H output
+as well as output from the OS/VS System Assembler, more commonly
+called the IFOX assembler.
+
+The SYSADATA output created by Version 1.4 of the High Level
+Assembler suggested useful enhancements: the ability to detect
+and report symbols that were modified, and resistance to changes
+in Assembler output.  A few minor changes were required to
+support High Level Assembler release 5, though no changes were
+required for release 6.
+
+The process to run something like GBLXREF suggested several
+processing requirements.
+
+- There must be a method to determine the global symbols; in HASP
+  and JES2 these symbols are in module HASPDOC.
+
+- To simplify JCL, there must be a utility to prepare the ADATA
+  data set in as few steps as possible, as well as reduce the
+  volume of data in the ADATA data set.
+
+             C O N T E N T S   O F   T H I S   D A T A S E T
+
+Member     Purpose
+$DOC     - This member
+ASMJES2  - JCL to assemble JES2 and then run the GBLXREF utility.
+           The space allocations in the JCL work well for JES2
+           in z/OS 2.5.
+GBLXREF  - Source for the GBLXREF utility
+GENXREF  - JCL to assemble and link GBLXREF and the other programs
+           in this collection
+JESASM   - Source for the utility to assemble source modules and
+           prepare the ADATA data set for GBLXREF
+MEMBLIST - Source for the utility to create a JESASM CONTROL
+           data set
+MINIFMT  - Source for functions used by GBLXREF to create messages
+OBJASM   - Object "decks" for JESASM
+OBJXREF  - Object "decks" for GBLXREF
+OBJMLIST - Object "deck" for MEMBLIST
+QSORTS   - Source for functions used by GBLXREF to sort data
+REPORT   - A typical GBLXREF report.  This member is compressed
+           data in XMIT format.
+RUNXREF  - JCL to run the GBLXREF utility.
+
+             U S I N G   T H E   G B L X R E F   R E P O R T
+
+The main part of the report displays each global symbol and the
+modules that reference the symbol.  For example -
+
+SAPDSET  *HASCSAPI  HASMSAPD
+
+Global symbol SAPDSET is referenced by module HASCSAPI and
+HASMSAPD.  Modules flagged with a * modify the data area
+represented by the symbol.
+
+The $MIDxxx symbols are created by the $MID macro and a few other
+macros and can help an analyst locate the JES2 module where a
+message is issued.  This is not as useful as in earlier JES2
+releses as most messages are actually in HASPMSG, but it can be
+helpful at times.
+
+GLXREF prints two summaries.
+
+80784 GLOBAL SYMBOLS FOUND, 45879 SYMBOLS HAVE AT LEAST ONE XREF,
+452191 XREF ENTRIES, 3901211 INPUT RECORDS, 76828 OUTPUT RECORDS
+
+This is a summary of the I/O performed for the ADATA data set by
+GBLXREF.
+
+ANALYZE HASPDOC   0.03 SECONDS
+ANALYZE MEMBERS   0.38 SECONDS
+SORT SYMBOLS      0.07 SECONDS
+PRINT REPORT      0.00 SECONDS
+FREE SYMBOLS      0.00 SECONDS
+TOTAL TIME        0.50 SECONDS
+
+This report shows the time required in several sections of
+GBLXREF.  Its purpose was to locate program sections that
+required optimization.  For example, an early version required
+much more time to free storage than was required elsewhere in the
+program; it was resolved by rewriting the storage management in
+the program.  This also improved the performance of analyzing
+HASPDOC and analyzing the other members, but the relative
+improvement in these areas was much less.
+
+            P R E P A R I N G   T H E   G B L X R E F   A N D
+                 J E S A S M   L O A D   M O D U L E S
+
+Method 1 - Run the job in member GENXREF in this data set.
+
+Method 2 - Use this method if method 1 failed because the
+ASM.SASMMAC1 HLASM macros data set is not available in your
+environment.
+
+Batch -
+//*  &SYSUID..GBLXREF.CBT.PDS refers to this data set.  Alter the
+//*  data set name to match your name.
+//*
+//*  &SYSUID..GBLXREF.LOAD is the data set that will receive the
+//*  GBLXREF and JESASM load modules.  If you choose to store the
+//*  load modules in a data set with other programs, remove the
+//*  PREP STEP and adjust the DD statement with DD name SYSLMOD
+//*  in the LINK step to match your requirement.
+//*
+//PREP    EXEC PGM=IEFBR14
+//SYSLMOD  DD  DISP=(MOD,DELETE),UNIT=SYSALLDA,SPACE=(TRK,0),
+//             DSN=&SYSUID..GBLXREF.LOAD
+//LINK    EXEC PGM=IEWL,PARM='MAP,LIST'
+//SYSPRINT DD  SYSOUT=*
+//SYSLMOD  DD  DISP=(,CATLG),UNIT=SYSDA,SPACE=(TRK,(3,2,1),RLSE),
+//             DSN=*.PREP.SYSLMOD
+//SYSLIN   DD  DISP=SHR,DSN=&SYSUID..GBLXREF.CBT.PDS(OBJASM)
+//         DD  DISP=SHR,DSN=&SYSUID..GBLXREF.CBT.PDS(OBJXREF)
+//         DD  DISP=SHR,DSN=&SYSUID..GBLXREF.CBT.PDS(OBJMLIST)
+
+TSO -
+DELETE GBLXREF.LOAD
+LINK 'hlq.GBLXREF.CBT.PDS(OBJXREF)' LOAD(GBLXREF)
+LINK 'hlq.GBLXREF.CBT.PDS(OBJASM)'  LOAD(GBLXREF)
+LINK 'hlq.GBLXREF.CBT.PDS(OBJMLIST)' LOAD(GBLXREF)
+
+As with the batch JCL, hlq.GBLXREF.CBT.PDS refers to this data
+set; adjust the LINK commands to refer to this data set.
+
+As with the batch JCL, the TSO commands delete and reallocate the
+userid.GBLXREF.LOAD data set.  To link the programs into an
+existing data set, remove the DELETE command and adjust the
+LOAD(GBLXREF) option on the LINK commands to specify your data
+set
+
+Both methods produce identical load modules.
+
+         R E T R I E V I N G   T H E   S A M P L E   R E P O R T
+
+The report member consists of data in XMIT format.  Use
+
+RECEIVE INDATASET(GBLXREF.CBT.PDS(REPORT))
+
+The RECEIVE command, by default, will generate data set
+userid.GBLXREF.REPORT.TERSE
+
+Run JCL like this to expand the report data set.
+
+//PREP    EXEC PGM=IEFBR14
+//SYSUT2   DD  DISP=(MOD,DELETE),UNIT=SYSALLDA,SPACE=(TRK,0),
+//             DSN=&SYSUID..GBLXREF.REPORT
+//EXPAND  EXEC PGM=AMATERSE,PARM=UNPACK
+//SYSPRINT DD  SYSOUT=*
+//SYSUT1   DD  DISP=SHR,DSN=&SYSUID..GBLXREF.REPORT.TERSE
+//SYSUT2   DD  DISP=(,CATLG),UNIT=SYSDA,SPACE=(CYL,(10,5),RLSE),
+//             DCB=(RECFM=VBA,LRECL=125,DSORG=PS),DSN=*.PREP.SYSUT2
+
+                              S U P P O R T
+
+Contact the author at mvsprog@yahoo.com.
